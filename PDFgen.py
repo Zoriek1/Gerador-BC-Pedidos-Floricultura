@@ -3,6 +3,8 @@
 Gerador de Pedidos — Plante Uma Flor
 Versão com integração SQLite: salva cada pedido em 'pedidos.db' na pasta de saída.
 """
+__version__ = "1.0.0"
+
 import tkinter as tk
 from tkinter import ttk, messagebox, Text, filedialog
 from tkinter import font as tkFont
@@ -134,15 +136,29 @@ def criar_pdf(caminho_arquivo, dados, pedido_num=None):
                     y_text -= espacamento
             return y_text - 0.2*cm
 
-        # Campos no PDF
+        # Campos no PDF - ordem do PDF antigo, adaptado para novos campos
         y_pos = desenhar_campo("Produto", dados.get("produto", ""), y_pos)
         y_pos = desenhar_campo("Para", dados.get("destinatario", ""), y_pos, negrito=True)
         y_pos = desenhar_campo("Quem enviou", dados.get("cliente", ""), y_pos)
+        
+        # Campos novos se existirem
+        telefone = dados.get("telefone_cliente", "")
+        if telefone:
+            y_pos = desenhar_campo("Telefone", telefone, y_pos)
+        
+        tipo_pedido = dados.get("tipo_pedido", "")
+        if tipo_pedido:
+            y_pos = desenhar_campo("Tipo", tipo_pedido, y_pos, negrito=True)
+        
+        flores = dados.get("flores_cor", "")
+        if flores:
+            y_pos = desenhar_campo("Flores e Cor", flores, y_pos)
+        
         y_pos = desenhar_campo("Carta", dados.get("mensagem", ""), y_pos)
         y_pos = desenhar_campo("Dia de Entrega", dados.get("data", ""), y_pos, negrito=True)
         y_pos = desenhar_campo("Horário", dados.get("horario", ""), y_pos, negrito=True)
         y_pos = desenhar_campo("Endereço", dados.get("endereco", ""), y_pos)
-        y_pos = desenhar_campo("Como Entregar", dados.get("obs", ""), y_pos)
+        y_pos = desenhar_campo("Como Entregar", dados.get("obs_entrega", "") or dados.get("obs", ""), y_pos)
 
         # Rodapé
         y_pos = check_new_page_if_needed(y_pos, 4)
@@ -155,7 +171,7 @@ def criar_pdf(caminho_arquivo, dados, pedido_num=None):
 
         info_pagamento = f"Valor: {safe_currency_format(dados.get('valor',''))} | Pagamento: {dados.get('pagamento','')}"
         cnv.drawCentredString(largura / 2, y_pos, info_pagamento)
-
+        
         cnv.save()
         return True
     except Exception:
@@ -172,8 +188,12 @@ def init_db(path_db):
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pedido_num INTEGER NOT NULL,
       cliente TEXT,
+      telefone_cliente TEXT,
       destinatario TEXT NOT NULL,
+      tipo_pedido TEXT,
       produto TEXT,
+      flores_cor TEXT,
+      obs_entrega TEXT,
       mensagem TEXT,
       valor_cents INTEGER,
       valor_text TEXT,
@@ -195,29 +215,40 @@ def init_db(path_db):
 
 def save_pedido_db(conn, pedido: dict):
     cur = conn.cursor()
-    cur.execute("""
-      INSERT INTO pedidos (pedido_num, cliente, destinatario, produto, mensagem, valor_cents,
-                           valor_text, pagamento, endereco, data_entrega, hora_entrega, obs,
-                           caminho_pdf, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-      pedido.get('pedido_num'),
-      pedido.get('cliente'),
-      pedido.get('destinatario'),
-      pedido.get('produto'),
-      pedido.get('mensagem'),
-      pedido.get('valor_cents'),
-      pedido.get('valor_text'),
-      pedido.get('pagamento'),
-      pedido.get('endereco'),
-      pedido.get('data_entrega'),
-      pedido.get('hora_entrega'),
-      pedido.get('obs'),
-      pedido.get('caminho_pdf'),
-      pedido.get('status','pendente')
-    ))
-    conn.commit()
-    return cur.lastrowid
+    try:
+        cur.execute("""
+          INSERT INTO pedidos (pedido_num, cliente, telefone_cliente, destinatario, tipo_pedido, 
+                               produto, flores_cor, obs_entrega, mensagem, valor_cents, valor_text, pagamento, 
+                               endereco, data_entrega, hora_entrega, obs, caminho_pdf, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+          pedido.get('pedido_num'),
+          pedido.get('cliente'),
+          pedido.get('telefone_cliente'),
+          pedido.get('destinatario'),
+          pedido.get('tipo_pedido'),
+          pedido.get('produto'),
+          pedido.get('flores_cor'),
+          pedido.get('obs_entrega'),
+          pedido.get('mensagem'),
+          pedido.get('valor_cents'),
+          pedido.get('valor_text'),
+          pedido.get('pagamento'),
+          pedido.get('endereco'),
+          pedido.get('data_entrega'),
+          pedido.get('hora_entrega'),
+          pedido.get('obs'),
+          pedido.get('caminho_pdf'),
+          pedido.get('status','pendente')
+        ))
+        conn.commit()
+        return cur.lastrowid
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        raise ValueError(f"Erro ao salvar pedido: pedido Nº {pedido.get('pedido_num')} já existe no banco de dados") from e
+    except Exception as e:
+        conn.rollback()
+        raise
 
 def export_db_to_csv(conn, csv_path):
     cur = conn.cursor()
@@ -232,7 +263,7 @@ def export_db_to_csv(conn, csv_path):
 # ---------------- Placeholder helpers ----------------
 
 def add_placeholder_entry(entry: tk.Entry, placeholder: str):
-    entry.placeholder = placeholder
+    entry.placeholder = placeholder # type: ignore
     try:
         default_fg = entry.cget("fg")
     except Exception:
@@ -257,7 +288,7 @@ def add_placeholder_entry(entry: tk.Entry, placeholder: str):
     entry.bind("<FocusOut>", on_focus_out)
 
 def add_placeholder_text(text_widget: Text, placeholder: str):
-    text_widget.placeholder = placeholder
+    text_widget.placeholder = placeholder # type: ignore # tipy : ignore
     placeholder_color = "#9a9a9a"
     try:
         normal_color = text_widget.cget("fg")
@@ -294,7 +325,7 @@ def add_placeholder_text(text_widget: Text, placeholder: str):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gerador de Pedidos — Plante Uma Flor")
+        self.root.title(f"Gerador de Pedidos — Plante Uma Flor (v{__version__})")
         self.root.geometry("760x680")
         self.root.minsize(640, 520)
         self.root.configure(bg="#F7F9FB")
@@ -345,27 +376,46 @@ class App:
         self.titulo_etapa = ttk.Label(self.card, text="", font=self.title_font, background="#FFFFFF")
         self.titulo_etapa.pack(pady=(4,10))
 
-        # Frames das etapas
-        self.frames = [self.criar_frame1(), self.criar_frame2(), self.criar_frame3()]
+        # Frames das etapas (agora são 4: Dados Pessoais, Dados Produto, Logística Condicional, Detalhes Finais)
+        self.frames = [self.criar_frame1(), self.criar_frame2(), self.criar_frame3(), self.criar_frame4()]
         self.mostrar_etapa(0)
 
     def mostrar_etapa(self, numero_etapa):
         for f in self.frames:
             f.pack_forget()
         self.passo_atual = numero_etapa
-        titulos = ["Dados Pessoais", "Logística da Entrega", "Detalhes do Pedido"]
-        self.titulo_etapa.config(text=f"Passo {self.passo_atual + 1}/3 — {titulos[self.passo_atual]}")
+        titulos = ["Dados Pessoais", "Dados do Produto", "Logística de Entrega", "Detalhes Finais"]
+        self.titulo_etapa.config(text=f"Passo {self.passo_atual + 1}/4 — {titulos[self.passo_atual]}")
         self.frames[self.passo_atual].pack(fill=tk.BOTH, expand=True)
 
     def proxima_etapa(self):
         self.salvar_dados_etapa(self.passo_atual)
+        
+        # Lógica para pular etapa 3 (logística) se for retirada
+        proximo = self.passo_atual + 1
+        if proximo == 2 and hasattr(self, 'var_tipo'):
+            tipo = self.var_tipo.get().lower()
+            if tipo == "retirada":
+                proximo = 3  # Pula a etapa de logística
+        
         if self.passo_atual < len(self.frames) - 1:
-            self.mostrar_etapa(self.passo_atual + 1)
+            if proximo < len(self.frames):
+                self.mostrar_etapa(proximo)
+            else:
+                self.mostrar_etapa(self.passo_atual + 1)
 
     def etapa_anterior(self):
         self.salvar_dados_etapa(self.passo_atual)
+        
+        # Lógica para pular etapa 3 (logística) se voltando e for retirada
+        anterior = self.passo_atual - 1
+        if anterior == 2 and hasattr(self, 'var_tipo'):
+            tipo = self.var_tipo.get().lower()
+            if tipo == "retirada":
+                anterior = 1  # Vai direto para etapa 1
+        
         if self.passo_atual > 0:
-            self.mostrar_etapa(self.passo_atual - 1)
+            self.mostrar_etapa(anterior)
 
     def criar_frame_botoes(self, parent, row, anterior=False, proximo=False, finalizar=False):
         botoes_frame = ttk.Frame(parent)
@@ -377,17 +427,13 @@ class App:
         if anterior:
             btn_ant = ttk.Button(botoes_frame, text="← Anterior", command=self.etapa_anterior)
             btn_ant.grid(row=0, column=0, sticky="w", padx=8)
-        if proximo and not finalizar:
+        
+        if finalizar:
+            btn_gerar = ttk.Button(botoes_frame, text="✔ Gerar PDF do Pedido", command=self.finalizar_e_gerar_pdf)
+            btn_gerar.grid(row=0, column=2, sticky="e", padx=8)
+        elif proximo:
             btn_prox = ttk.Button(botoes_frame, text="Próximo →", command=self.proxima_etapa)
             btn_prox.grid(row=0, column=2, sticky="e", padx=8)
-        elif proximo and finalizar:
-            btn_prox = ttk.Button(botoes_frame, text="Próximo →", command=self.proxima_etapa)
-            btn_prox.grid(row=0, column=1, sticky="e", padx=8)
-            btn_gerar = ttk.Button(botoes_frame, text="✔ Gerar PDF do Pedido", command=self.finalizar_e_gerar_pdf)
-            btn_gerar.grid(row=0, column=2, sticky="e", padx=8)
-        elif finalizar:
-            btn_gerar = ttk.Button(botoes_frame, text="✔ Gerar PDF do Pedido", command=self.finalizar_e_gerar_pdf)
-            btn_gerar.grid(row=0, column=2, sticky="e", padx=8)
 
     def criar_campo(self, parent, label_text, row):
         lbl = ttk.Label(parent, text=label_text)
@@ -405,6 +451,7 @@ class App:
         text = Text(frame_txt, height=height, wrap="word", font=self.input_font, bd=0, padx=6, pady=6)
         text.pack(fill="both", expand=True)
         text.bind("<Return>", lambda e: (text.insert("insert", "\n"), "break"))
+        text.frame_parent = frame_txt  # type: ignore # Guarda referência ao frame pai
         parent.rowconfigure(row+1, weight=1)
         parent.columnconfigure(0, weight=1)
         return text
@@ -415,26 +462,24 @@ class App:
         frame.columnconfigure(0, weight=1)
 
         self.entry_cliente = self.criar_campo(frame, "Quem enviou (Cliente):", 0)
-        add_placeholder_entry(self.entry_cliente, "nome do remetente")
+        add_placeholder_entry(self.entry_cliente, "Nome do remetente")
 
-        self.entry_destinatario = self.criar_campo(frame, "Para (Destinatário):", 2)
+        self.entry_telefone = self.criar_campo(frame, "Telefone do Cliente (Obrigatório):", 2)
+        add_placeholder_entry(self.entry_telefone, "Ex.: (62) 99999-9999")
+
+        self.entry_destinatario = self.criar_campo(frame, "Para (Destinatário) - Obrigatório:", 4)
         add_placeholder_entry(self.entry_destinatario, "Nome do destinatário")
 
-        # Produto (na página 1)
-        self.text_produto = self.criar_campo_multilinha(frame, "Produto:", 4, height=4)
-        add_placeholder_text(self.text_produto, "Ex.: Buquê 12 rosas vermelhas com papel kraft")
-
-        # Valor (Entry com buffer de centavos)
-        lbl_valor = ttk.Label(frame, text="Valor Total (R$):")
-        lbl_valor.grid(row=6, column=0, sticky="ew", padx=8, pady=(6,2))
-        self.var_valor = tk.StringVar()
-        self.entry_valor = tk.Entry(frame, font=self.input_font, justify="center", relief="solid", bd=1, textvariable=self.var_valor)
-        self.entry_valor.grid(row=7, column=0, sticky="ew", padx=8, pady=(0,8))
-        add_placeholder_entry(self.entry_valor, "Ex.: R$ 120,00")
-
-        # Bind de teclado para comportamento 'centavos buffer'
-        self.entry_valor.bind("<KeyPress>", self._valor_keypress)
-        self.entry_valor.bind("<FocusOut>", lambda e: self._valor_normalize_on_focusout())
+        # Tipo de pedido: Entrega ou Retirada
+        lbl_tipo = ttk.Label(frame, text="Tipo de Pedido:")
+        lbl_tipo.grid(row=6, column=0, sticky="ew", padx=8, pady=(6,2))
+        self.var_tipo = tk.StringVar(value="Entrega")
+        frame_tipo = ttk.Frame(frame)
+        frame_tipo.grid(row=7, column=0, sticky="ew", padx=8, pady=(0,8))
+        r1 = ttk.Radiobutton(frame_tipo, text="Entrega", variable=self.var_tipo, value="Entrega")
+        r1.pack(side=tk.LEFT, padx=10)
+        r2 = ttk.Radiobutton(frame_tipo, text="Retirada", variable=self.var_tipo, value="Retirada")
+        r2.pack(side=tk.LEFT, padx=10)
 
         self.criar_frame_botoes(frame, row=8, proximo=True)
         return frame
@@ -443,33 +488,50 @@ class App:
     def criar_frame2(self):
         frame = ttk.Frame(self.card, style="Card.TFrame", padding=(6,6,6,6))
         frame.columnconfigure(0, weight=1)
-        self.text_endereco = self.criar_campo_multilinha(frame, "Endereço Completo:", 0, height=4)
-        add_placeholder_text(self.text_endereco, "Rua, número, complemento (se houver), bairro, cidade - Ex.: Rua A, 123, apto 45, Setor Central, Goiânia")
 
-        # Data com máscara
-        self.entry_data = self.criar_campo(frame, "Dia da Entrega (DD/MM/YYYY):", 2)
+        # Nome do Produto
+        self.text_produto = self.criar_campo_multilinha(frame, "Nome do Produto:", 0, height=3)
+        add_placeholder_text(self.text_produto, "Ex.: Buquê 12 rosas vermelhas")
+
+        # Flores e Cor
+        self.text_flores = self.criar_campo_multilinha(frame, "Flores que vão e Cor:", 2, height=3)
+        add_placeholder_text(self.text_flores, "Ex.: 12 rosas vermelhas, gipsófilas brancas")
+
+        # Valor (Entry com buffer de centavos)
+        lbl_valor = ttk.Label(frame, text="Valor Total (R$):")
+        lbl_valor.grid(row=4, column=0, sticky="ew", padx=8, pady=(6,2))
+        self.var_valor = tk.StringVar()
+        self.entry_valor = tk.Entry(frame, font=self.input_font, justify="center", relief="solid", bd=1, textvariable=self.var_valor)
+        self.entry_valor.grid(row=5, column=0, sticky="ew", padx=8, pady=(0,8))
+        add_placeholder_entry(self.entry_valor, "Ex.: R$ 120,00")
+        self.entry_valor.bind("<KeyPress>", self._valor_keypress)
+        self.entry_valor.bind("<FocusOut>", lambda e: self._valor_normalize_on_focusout())
+
+        # Data e Horário (sempre visíveis no Frame 2)
+        self.lbl_data = ttk.Label(frame, text="Data (DD/MM/YYYY):")
+        self.lbl_data.grid(row=6, column=0, sticky="ew", padx=8, pady=(6,2))
+        self.entry_data = tk.Entry(frame, font=self.input_font, justify="center", relief="solid", bd=1)
+        self.entry_data.grid(row=7, column=0, sticky="ew", padx=8, pady=(0,8))
         add_placeholder_entry(self.entry_data, "Ex.: 15/10/2025")
         self.entry_data.bind("<KeyRelease>", lambda e: self._mask_data(self.entry_data))
 
-        # Horário com máscara
-        self.entry_horario = self.criar_campo(frame, "Horário da Entrega (ex.: 14:30):", 4)
+        self.lbl_horario = ttk.Label(frame, text="Horário (ex.: 14:30):")
+        self.lbl_horario.grid(row=8, column=0, sticky="ew", padx=8, pady=(6,2))
+        self.entry_horario = tk.Entry(frame, font=self.input_font, justify="center", relief="solid", bd=1)
+        self.entry_horario.grid(row=9, column=0, sticky="ew", padx=8, pady=(0,8))
         add_placeholder_entry(self.entry_horario, "Ex.: 14:30")
         self.entry_horario.bind("<KeyRelease>", lambda e: self._mask_horario(self.entry_horario))
 
-        self.entry_obs = self.criar_campo(frame, "Como Entregar (observações):", 6)
-        add_placeholder_entry(self.entry_obs, "Ex.: Entregar na portaria / Bater na campainha")
-
         folder_frame = ttk.Frame(frame)
-        folder_frame.grid(row=7, column=0, sticky="ew", padx=8, pady=(8,0))
+        folder_frame.grid(row=10, column=0, sticky="ew", padx=8, pady=(8,0))
         folder_frame.columnconfigure(0, weight=1)
         self.folder_label = ttk.Label(folder_frame, text=f"Pasta de saída: {self.output_folder}")
         self.folder_label.grid(row=0, column=0, sticky="w")
         btn_choose = ttk.Button(folder_frame, text="Alterar pasta...", command=self.escolher_pasta_saida)
         btn_choose.grid(row=0, column=1, sticky="e", padx=6)
 
-        # botão para abrir DB e botão de exportar CSV
         tools_frame = ttk.Frame(frame)
-        tools_frame.grid(row=8, column=0, sticky="ew", padx=8, pady=(8,0))
+        tools_frame.grid(row=11, column=0, sticky="ew", padx=8, pady=(8,0))
         tools_frame.columnconfigure(0, weight=1)
         tools_frame.columnconfigure(1, weight=1)
         btn_open_db = ttk.Button(tools_frame, text="Abrir pasta (contém DB)", command=lambda: open_file_platform(self.output_folder))
@@ -477,17 +539,45 @@ class App:
         btn_export = ttk.Button(tools_frame, text="Exportar pedidos (CSV)", command=self._export_csv_prompt)
         btn_export.grid(row=0, column=1, sticky="e")
 
-        self.criar_frame_botoes(frame, row=9, anterior=True, proximo=True)
+        self.criar_frame_botoes(frame, row=12, anterior=True, proximo=True)
         return frame
 
-    # ---------- FRAME 3 ----------
+    # ---------- FRAME 3 (Logística de Entrega) ----------
     def criar_frame3(self):
         frame = ttk.Frame(self.card, style="Card.TFrame", padding=(6,6,6,6))
         frame.columnconfigure(0, weight=1)
-        self.text_mensagem = self.criar_campo_multilinha(frame, "Mensagem do Cartão:", 0, height=3)
+
+        # Endereço completo
+        self.lbl_endereco = ttk.Label(frame, text="Endereço Completo:")
+        self.lbl_endereco.grid(row=0, column=0, sticky="ew", padx=8, pady=(6,2))
+        frame_endereco = tk.Frame(frame, bg="#e9eef5", bd=1, relief="solid")
+        frame_endereco.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0,8))
+        self.text_endereco = Text(frame_endereco, height=4, wrap="word", font=self.input_font, bd=0, padx=6, pady=6)
+        self.text_endereco.pack(fill="both", expand=True)
+        self.text_endereco.frame_parent = frame_endereco  # type: ignore
+        add_placeholder_text(self.text_endereco, "Rua, número, complemento, bairro, cidade")
+
+        # Observações de entrega
+        self.text_obs_entrega = self.criar_campo_multilinha(frame, "Observações para Entrega:", 2, height=3)
+        add_placeholder_text(self.text_obs_entrega, "Ex.: Entregar na portaria / Bater na campainha")
+
+        self.criar_frame_botoes(frame, row=8, anterior=True, proximo=True)
+        return frame
+
+    # ---------- FRAME 4 (Detalhes Finais) ----------
+    def criar_frame4(self):
+        frame = ttk.Frame(self.card, style="Card.TFrame", padding=(6,6,6,6))
+        frame.columnconfigure(0, weight=1)
+
+        self.entry_obs = self.criar_campo_multilinha(frame, "Observações Gerais:", 0, height=3)
+        add_placeholder_text(self.entry_obs, "Observações gerais sobre o pedido")
+
+        self.text_mensagem = self.criar_campo_multilinha(frame, "Mensagem do Cartão:", 2, height=4)
         add_placeholder_text(self.text_mensagem, "Ex.: Feliz Aniversário! Com carinho, João")
-        self.entry_pagamento = self.criar_campo(frame, "Forma de Pagamento:", 2)
+
+        self.entry_pagamento = self.criar_campo(frame, "Forma de Pagamento:", 4)
         add_placeholder_entry(self.entry_pagamento, "Ex.: Dinheiro / Cartão / PIX")
+
         self.criar_frame_botoes(frame, row=8, anterior=True, finalizar=True)
         return frame
 
@@ -528,19 +618,29 @@ class App:
             return val
 
         mappings = [
+            # Frame 0: Dados Pessoais
             lambda: {
                 "cliente": clean_entry(self.entry_cliente),
+                "telefone_cliente": clean_entry(self.entry_telefone),
                 "destinatario": clean_entry(self.entry_destinatario),
-                "produto": clean_text(self.text_produto),
-                "valor": clean_entry(self.entry_valor)
+                "tipo_pedido": self.var_tipo.get() if hasattr(self, 'var_tipo') else "Entrega"
             },
+            # Frame 1: Dados do Produto
+            lambda: {
+                "produto": clean_text(self.text_produto),
+                "flores_cor": clean_text(self.text_flores),
+                "valor": clean_entry(self.entry_valor),
+                "data": clean_entry(self.entry_data),
+                "horario": clean_entry(self.entry_horario)
+            },
+            # Frame 2: Logística de Entrega
             lambda: {
                 "endereco": clean_text(self.text_endereco),
-                "data": clean_entry(self.entry_data),
-                "horario": clean_entry(self.entry_horario),
-                "obs": clean_entry(self.entry_obs)
+                "obs_entrega": clean_text(self.text_obs_entrega)
             },
+            # Frame 3: Detalhes Finais
             lambda: {
+                "obs": clean_text(self.entry_obs),
                 "mensagem": clean_text(self.text_mensagem),
                 "pagamento": clean_entry(self.entry_pagamento)
             }
@@ -583,13 +683,23 @@ class App:
 
     def finalizar_e_gerar_pdf(self):
         # salva o estado atual
-        self.salvar_dados_etapa(self.passo_atual if self.passo_atual < 3 else 2)
+        self.salvar_dados_etapa(self.passo_atual if self.passo_atual < 4 else 3)
+        
+        # Validação de telefone (obrigatório)
+        telefone = (self.dados.get("telefone_cliente") or "").strip()
+        if not telefone:
+            messagebox.showerror("Erro", 'O campo "Telefone do Cliente" é obrigatório.')
+            self.mostrar_etapa(0)
+            return
+        
+        # Validação de destinatário (obrigatório)
         destinatario = (self.dados.get("destinatario") or "").strip()
         if not destinatario:
             messagebox.showerror("Erro", 'O campo "Destinatário" é obrigatório.')
             self.mostrar_etapa(0)
             return
 
+        # Validação de data e horário (obrigatórios para todos os pedidos)
         data = (self.dados.get("data") or "").strip()
         if not self.validar_data(data):
             messagebox.showerror("Erro", 'Formato de data inválido. Use DD/MM/YYYY (ex.: 15/10/2025).')
@@ -621,7 +731,7 @@ class App:
         # Gera o PDF
         sucesso = criar_pdf(caminho_completo_arquivo, self.dados, pedido_num=pedido_num)
         if not sucesso:
-            messagebox.showerror("Erro", "Ocorreu um erro ao gerar o PDF. Veja o console para detalhes.")
+            messagebox.showerror("Erro", f"Ocorreu um erro ao gerar o PDF.\n\nCaminho: {caminho_completo_arquivo}\n\nVerifique o console para detalhes.")
             return
 
         # Prepara dados para salvar no DB
@@ -654,8 +764,12 @@ class App:
         pedido_record = {
             'pedido_num': pedido_num,
             'cliente': self.dados.get('cliente', ''),
+            'telefone_cliente': self.dados.get('telefone_cliente', ''),
             'destinatario': self.dados.get('destinatario', ''),
+            'tipo_pedido': self.dados.get('tipo_pedido', ''),
             'produto': self.dados.get('produto', ''),
+            'flores_cor': self.dados.get('flores_cor', ''),
+            'obs_entrega': self.dados.get('obs_entrega', ''),
             'mensagem': self.dados.get('mensagem', ''),
             'valor_cents': valor_cents,
             'valor_text': self.dados.get('valor', ''),
@@ -673,6 +787,9 @@ class App:
             if not self._db_conn:
                 self._db_conn = init_db(self._db_path)
             save_pedido_db(self._db_conn, pedido_record)
+        except ValueError as e:
+            # Pedido duplicado ou erro de integridade
+            messagebox.showwarning("Aviso", f"PDF gerado com sucesso!\n\nAviso: {str(e)}")
         except Exception as e:
             # não bloqueia a geração do PDF; apenas informa
             messagebox.showwarning("Aviso (DB)", f"PDF gerado, mas houve erro ao salvar no banco: {e}\n\nVerifique permissões ou caminho: {self._db_path}")

@@ -5,7 +5,12 @@ a = Analysis(
     ['PDFgen.py'],
     pathex=[],
     binaries=[],
-    datas=[('Raleway-VariableFont_wght.ttf', '.'), ('Montserrat-Italic-VariableFont_wght.ttf', '.')],
+    datas=[
+        ('Raleway-VariableFont_wght.ttf', '.'),
+        ('Raleway-Italic-VariableFont_wght.ttf', '.'),
+        ('Montserrat-VariableFont_wght.ttf', '.'),
+        ('Montserrat-Italic-VariableFont_wght.ttf', '.'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
